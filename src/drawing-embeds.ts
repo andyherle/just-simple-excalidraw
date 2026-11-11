@@ -1,4 +1,6 @@
 import { Component, Notice, TFile, type App, type Plugin } from "obsidian";
+import { DrawingPreviewCache, type PreviewRenderer } from "./drawing-preview-cache";
+export type { PreviewRenderer } from "./drawing-preview-cache";
 
 // Obsidian has no public API for custom file embeds. Keep this small adapter
 // separate, check its shape, and never replace another plugin's renderer.
@@ -15,8 +17,6 @@ interface EmbedRegistry {
   unregisterExtensions(extensions: string[]): void;
 }
 
-export type PreviewRenderer = (file: TFile, dark: boolean) => Promise<string | null>;
-
 export function registerDrawingEmbeds(plugin: Plugin, render: PreviewRenderer): void {
   const registry = (plugin.app as App & { embedRegistry?: EmbedRegistry }).embedRegistry;
   if (!registry || typeof registry.registerExtensions !== "function" ||
@@ -29,10 +29,17 @@ export function registerDrawingEmbeds(plugin: Plugin, render: PreviewRenderer): 
     return;
   }
 
+  const cache = new DrawingPreviewCache(render);
+  // Invalidate once before individual previews receive the same event. File
+  // stats can be unchanged after a fast save, so events also advance a counter.
+  const invalidate = (file: unknown): void => { if (file instanceof TFile) cache.invalidate(file); };
+  plugin.registerEvent(plugin.app.vault.on("modify", invalidate));
+  plugin.registerEvent(plugin.app.vault.on("rename", invalidate));
+  plugin.registerEvent(plugin.app.vault.on("delete", invalidate));
   const previews = new Set<DrawingEmbed>();
   const creator: EmbedCreator = (context, file) => {
-    const preview = new DrawingEmbed(plugin.app, context, file, render, () => previews.delete(preview));
-    previews.add(preview);
+    const preview = new DrawingEmbed(plugin.app, context, file, cache,
+      active => { if (active) previews.add(preview); else previews.delete(preview); });
     return preview;
   };
   registry.registerExtensions(["excalidraw"], creator);
@@ -40,6 +47,7 @@ export function registerDrawingEmbeds(plugin: Plugin, render: PreviewRenderer): 
     if (registry.embedByExtension.excalidraw === creator) {
       registry.unregisterExtensions(["excalidraw"]);
     }
+    cache.dispose();
     for (const preview of [...previews]) preview.unload();
     previews.clear();
   });
@@ -48,7 +56,10 @@ export function registerDrawingEmbeds(plugin: Plugin, render: PreviewRenderer): 
 /** A read-only image. It never claims file ownership or saves a scene. */
 export class DrawingEmbed extends Component {
   private generation = 0;
-  private stopped = false;
+  private stopped = true;
+  private missing = false;
+  private requestedVersion: string | null = null;
+  private pending: AbortController | null = null;
   private objectUrl: string | null = null;
   private button: HTMLButtonElement | null = null;
   private image: HTMLImageElement | null = null;
@@ -57,14 +68,22 @@ export class DrawingEmbed extends Component {
     private readonly app: App,
     private readonly context: EmbedContext,
     private file: TFile,
-    private readonly render: PreviewRenderer,
-    private readonly disposed: () => void
+    private readonly cache: DrawingPreviewCache,
+    private readonly setActive: (active: boolean) => void
   ) {
     super();
   }
 
   onload(): void {
+    if (this.cache.disposed) return;
     this.stopped = false;
+    this.requestedVersion = null;
+    this.setActive(true);
+    // A host may reuse an unloaded component after the file was removed or
+    // recreated. Resolve its current identity before accepting another export.
+    const current = this.app.vault.getAbstractFileByPath(this.file.path);
+    this.missing = !(current instanceof TFile);
+    if (current instanceof TFile) this.file = current;
     const container = this.context.containerEl;
     const doc = container.ownerDocument;
     container.classList.add("just-simple-excalidraw-embed");
@@ -86,6 +105,10 @@ export class DrawingEmbed extends Component {
     }));
     this.registerEvent(this.app.vault.on("delete", (file) => {
       if (file === this.file) {
+        this.missing = true;
+        this.requestedVersion = null;
+        this.pending?.abort();
+        this.pending = null;
         ++this.generation;
         this.showMessage("Drawing missing. Click to create it.");
       }
@@ -93,6 +116,7 @@ export class DrawingEmbed extends Component {
     this.registerEvent(this.app.vault.on("create", (file) => {
       if (file instanceof TFile && file.path === this.file.path) {
         this.file = file;
+        this.missing = false;
         this.loadFile();
       }
     }));
@@ -104,11 +128,22 @@ export class DrawingEmbed extends Component {
     const observer = new Observer(() => this.applySize());
     observer.observe(container, { attributes: true, attributeFilter: ["width", "height"] });
     this.register(() => observer.disconnect());
+    if (this.missing) this.showMessage("Drawing missing. Click to create it.");
   }
 
   loadFile(): void {
-    if (this.stopped) return;
-    void this.refresh();
+    if (this.stopped || this.cache.disposed || this.missing) return;
+    const dark = this.context.containerEl.ownerDocument.body.classList.contains("theme-dark");
+    const version = `${this.cache.version(this.file)}\0${dark}`;
+    if (version === this.requestedVersion) return;
+    this.requestedVersion = version;
+    const generation = ++this.generation;
+    this.pending?.abort();
+    const pending = this.pending = new AbortController();
+    // Multiple host notifications in one turn need only the newest revision.
+    queueMicrotask(() => {
+      if (!pending.signal.aborted && !this.stopped && !this.missing) void this.refresh(generation, dark, pending);
+    });
   }
 
   // Element/section selection is outside this prototype. A subpath still
@@ -117,16 +152,18 @@ export class DrawingEmbed extends Component {
 
   onunload(): void {
     this.stopped = true;
+    this.pending?.abort();
+    this.pending = null;
+    this.requestedVersion = null;
     ++this.generation;
     this.revokeImage();
     this.button?.remove();
     this.button = null;
     this.context.containerEl.classList.remove("just-simple-excalidraw-embed");
-    this.disposed();
+    this.setActive(false);
   }
 
-  private async refresh(): Promise<void> {
-    const generation = ++this.generation;
+  private async refresh(generation: number, dark: boolean, pending: AbortController): Promise<void> {
     const button = this.button;
     if (!button) return;
     button.title = `Open ${this.file.name}`;
@@ -134,9 +171,8 @@ export class DrawingEmbed extends Component {
     button.setAttribute("aria-busy", "true");
     if (!button.childNodes.length) button.textContent = "Loading drawing…";
     try {
-      const dark = this.context.containerEl.ownerDocument.body.classList.contains("theme-dark");
-      const svg = await this.render(this.file, dark);
-      if (this.stopped || generation !== this.generation) return;
+      const svg = await this.cache.get(this.file, dark, pending.signal);
+      if (this.stopped || this.missing || pending.signal.aborted || generation !== this.generation) return;
       if (svg === null) {
         this.showMessage("Empty drawing. Click to edit.");
         return;
@@ -156,8 +192,11 @@ export class DrawingEmbed extends Component {
       button.removeAttribute("aria-busy");
       this.applySize();
     } catch (error) {
-      if (this.stopped || generation !== this.generation) return;
+      if (this.stopped || this.missing || pending.signal.aborted || generation !== this.generation) return;
+      this.requestedVersion = null;
       this.showMessage(`Cannot preview this drawing. ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      if (this.pending === pending) this.pending = null;
     }
   }
 

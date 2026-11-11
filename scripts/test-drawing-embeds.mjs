@@ -25,11 +25,12 @@ class Component {
   unload() {
     if (!this.loaded) return;
     this.loaded = false;
-    this.onunload?.();
     for (const cleanup of this.cleanups.splice(0).reverse()) cleanup();
+    this.onunload?.();
   }
 }
 class TFile {
+  stat = { mtime: 1, size: 100 };
   constructor(path) { this.setPath(path); }
   setPath(path) {
     this.path = path;
@@ -144,7 +145,7 @@ function deferred() {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-const settle = async () => { await Promise.resolve(); await Promise.resolve(); };
+const settle = () => new Promise(resolve => setImmediate(resolve));
 
 function runtime() {
   const page = documentFixture();
@@ -154,6 +155,8 @@ function runtime() {
   const unregistration = [];
   const cleanups = [];
   const writes = [];
+  const files = new Map();
+  const vaultEvents = events();
   let renderer = async () => "<svg xmlns=\"http://www.w3.org/2000/svg\"><text>Diagram</text></svg>";
   const registry = {
     embedByExtension: {},
@@ -169,24 +172,36 @@ function runtime() {
   const app = {
     embedRegistry: registry,
     vault: {
-      ...events(),
+      ...vaultEvents,
+      emit(name, file, ...args) {
+        if (name === "create") files.set(file.path, file);
+        if (name === "delete" && files.get(file.path) === file) files.delete(file.path);
+        if (name === "rename") { files.delete(args[0]); files.set(file.path, file); }
+        vaultEvents.emit(name, file, ...args);
+      },
+      getAbstractFileByPath(path) { return files.get(path) ?? null; },
       async create(...args) { writes.push(["create", ...args]); },
       async modify(...args) { writes.push(["modify", ...args]); },
       async delete(...args) { writes.push(["delete", ...args]); }
     },
     workspace: { ...events(), async openLinkText(...args) { opened.push(args); } }
   };
-  const plugin = { app, register(cleanup) { cleanups.push(cleanup); } };
+  const plugin = {
+    app,
+    register(cleanup) { cleanups.push(cleanup); },
+    registerEvent(ref) { cleanups.push(() => ref.owner.offref(ref)); }
+  };
   return {
-    ...page, app, registry, registration, unregistration, renders, opened, writes,
+    ...page, app, registry, registration, unregistration, renders, opened, writes, files,
     start() {
-      registerDrawingEmbeds(plugin, (file, dark) => {
-        renders.push({ file, dark });
-        return renderer(file, dark);
+      registerDrawingEmbeds(plugin, (file, dark, signal) => {
+        renders.push({ file, dark, signal });
+        return renderer(file, dark, signal);
       });
     },
     useRenderer(next) { renderer = next; },
     mount(file = new TFile("Drawings/diagram.excalidraw")) {
+      files.set(file.path, file);
       const container = page.doc.createElement("div");
       const preview = registry.embedByExtension.excalidraw({ containerEl: container, sourcePath: "Notes/source.md" }, file);
       preview.load();
@@ -238,6 +253,12 @@ assert.deepEqual(basic.opened, [[drawing.file.path, "Notes/source.md", "tab"]]);
 assert.deepEqual(basic.writes, [], "Preview lifecycle must not write drawing files.");
 basic.app.vault.emit("modify", new TFile("Other.excalidraw"));
 assert.equal(basic.renders.length, 1, "Unrelated files must not trigger another export.");
+basic.app.workspace.emit("css-change");
+drawing.preview.loadFile();
+drawing.preview.setSubpath("#unused");
+await settle();
+assert.equal(basic.renders.length, 1, "Unchanged theme and repeated host requests must reuse the displayed version.");
+assert.equal(basic.blobs.size, 1, "Repeated requests must not allocate another image URL.");
 
 // Dimensions update without re-export; invalid values cannot become CSS.
 drawing.container.setAttribute("width", "400");
@@ -270,7 +291,10 @@ race.useRenderer(() => { const result = deferred(); pending.push(result); return
 race.start();
 const changing = race.mount();
 changing.preview.loadFile();
+await settle();
 race.app.vault.emit("modify", changing.file);
+await settle();
+assert.equal(race.renders[0].signal.aborted, true, "A new file version must cancel the old export when possible.");
 pending[1].resolve("<svg>new</svg>");
 await settle();
 const currentUrl = changing.button.firstElementChild.src;
@@ -278,8 +302,10 @@ pending[0].reject(new Error("stale read failed"));
 await settle();
 assert.equal(changing.button.firstElementChild.src, currentUrl);
 assert.equal(race.blobs.size, 1);
-changing.preview.loadFile();
-changing.preview.loadFile();
+race.app.vault.emit("modify", changing.file);
+await settle();
+race.app.vault.emit("modify", changing.file);
+await settle();
 pending[3].resolve("<svg>newest</svg>");
 await settle();
 pending[2].resolve("<svg>old</svg>");
@@ -289,7 +315,8 @@ assert.deepEqual(race.revoked, [currentUrl]);
 
 // Deletion invalidates in-flight work. A newly created TFile at the same path
 // replaces the old identity, and unrelated creations do not wake the preview.
-changing.preview.loadFile();
+race.app.vault.emit("modify", changing.file);
+await settle();
 const beforeDeleteUrl = changing.button.firstElementChild.src;
 race.app.vault.emit("delete", changing.file);
 assert.match(changing.button.textContent, /Drawing missing/);
@@ -297,10 +324,17 @@ assert.ok(race.revoked.includes(beforeDeleteUrl));
 pending[4].resolve("<svg>deleted</svg>");
 await settle();
 assert.equal(changing.button.firstElementChild, null);
+race.doc.body.classList.add("theme-dark");
+race.app.workspace.emit("css-change");
+changing.preview.loadFile();
+await settle();
+assert.match(changing.button.textContent, /Drawing missing/);
+assert.equal(pending.length, 5, "Theme changes must not resurrect or read a deleted drawing.");
 race.app.vault.emit("create", new TFile("Other/diagram.excalidraw"));
 assert.equal(pending.length, 5);
 const replacement = new TFile(changing.file.path);
 race.app.vault.emit("create", replacement);
+await settle();
 assert.equal(race.renders.at(-1).file, replacement);
 pending[5].resolve("<svg>recreated</svg>");
 await settle();
@@ -311,12 +345,14 @@ assert.equal(pending.length, countBeforeOldModify);
 
 // Empty scenes and read errors stay visible as messages and release images.
 const currentBeforeEmpty = changing.button.firstElementChild.src;
-changing.preview.loadFile();
+race.app.vault.emit("modify", replacement);
+await settle();
 pending[6].resolve(null);
 await settle();
 assert.match(changing.button.textContent, /Empty drawing/);
 assert.ok(race.revoked.includes(currentBeforeEmpty));
-changing.preview.loadFile();
+race.app.vault.emit("modify", replacement);
+await settle();
 pending[7].reject(new Error("Invalid JSON"));
 await settle();
 assert.match(changing.button.textContent, /Cannot preview this drawing.*Invalid JSON/);
@@ -341,6 +377,7 @@ const openedBeforeUnloadClick = basic.opened.length;
 oldButton.click();
 assert.equal(basic.opened.length, openedBeforeUnloadClick);
 changing.preview.loadFile();
+await settle();
 const blobsBeforeUnload = race.blobs.size;
 race.unload();
 pending[8].resolve("<svg>too late</svg>");
@@ -357,4 +394,156 @@ assert.equal(race.observers.size, 0);
 assert.equal(new Set(race.revoked).size, race.blobs.size);
 assert.equal(race.revoked.length, race.blobs.size, "Every created URL must be revoked once.");
 
-console.log("Drawing embed lifecycle, async refresh, registry ownership and dimensions passed.");
+// Multiple notes share one export. Removing one subscriber must leave work
+// needed by another note alive; removing the last one cancels it.
+const sharing = runtime();
+let sharedResult = deferred();
+sharing.useRenderer(() => sharedResult.promise);
+sharing.start();
+const sharedFile = new TFile("shared.excalidraw");
+const first = sharing.mount(sharedFile), second = sharing.mount(sharedFile);
+first.preview.loadFile();
+second.preview.loadFile();
+await settle();
+assert.equal(sharing.renders.length, 1);
+first.preview.unload();
+assert.equal(sharing.renders[0].signal.aborted, false);
+sharedResult.resolve("<svg>shared</svg>");
+await settle();
+assert.equal(first.container.firstElementChild, null);
+assert.equal(await sharing.blobs.get(second.button.firstElementChild.src).text(), "<svg>shared</svg>");
+first.preview.load();
+first.preview.loadFile();
+await settle();
+assert.equal(sharing.renders.length, 1, "Remounting an unchanged file should use the bounded cache.");
+assert.equal(first.container.firstElementChild.firstElementChild.tagName, "IMG");
+sharedResult = deferred();
+sharing.app.vault.emit("modify", sharedFile);
+await settle();
+assert.equal(sharing.renders.length, 2, "One modification must cause one shared export, even with unchanged file stats.");
+first.preview.unload();
+second.preview.unload();
+assert.equal(sharing.renders[1].signal.aborted, true);
+sharedResult.resolve("<svg>unneeded</svg>");
+await settle();
+assert.equal(sharing.blobs.size, 2);
+sharing.app.vault.emit("delete", sharedFile);
+first.preview.load();
+first.preview.loadFile();
+await settle();
+assert.match(first.container.firstElementChild.textContent, /Drawing missing/);
+assert.equal(sharing.renders.length, 2);
+const recreated = new TFile(sharedFile.path);
+sharedResult = Promise.resolve("<svg>replacement</svg>");
+sharing.useRenderer(() => sharedResult);
+sharing.app.vault.emit("create", recreated);
+await settle();
+assert.equal(sharing.renders.at(-1).file, recreated);
+sharing.unload();
+assert.equal(first.container.childNodes.length, 0, "A reused component must still be included in plugin unload cleanup.");
+assert.equal(sharing.app.vault.count() + sharing.app.workspace.count(), 0);
+assert.equal(sharing.revoked.length, sharing.blobs.size);
+
+// Two exports may run at once. Repeated edits to a queued drawing keep only
+// its newest version; unloading a queued preview prevents its export entirely.
+const queued = runtime();
+const work = [];
+queued.useRenderer((file, dark, signal) => {
+  const result = deferred();
+  work.push({ file, signal, ...result });
+  return result.promise;
+});
+queued.start();
+const queueViews = Array.from({ length: 4 }, (_, index) => queued.mount(new TFile(`queue-${index}.excalidraw`)));
+for (const entry of queueViews) entry.preview.loadFile();
+await settle();
+assert.equal(work.length, 2);
+for (let index = 0; index < 10; index++) queued.app.vault.emit("modify", queueViews[2].file);
+queueViews[3].preview.unload();
+await settle();
+assert.equal(work.length, 2);
+work[0].resolve("<svg>first</svg>");
+await settle();
+assert.equal(work.length, 3);
+assert.equal(work[2].file, queueViews[2].file);
+work[1].resolve("<svg>second</svg>");
+work[2].resolve("<svg>latest</svg>");
+await settle();
+assert.equal(work.length, 3, "Obsolete and unloaded queued versions must not reach the exporter.");
+assert.equal(queueViews[2].button.firstElementChild.tagName, "IMG");
+queued.unload();
+
+// The cache keeps at most 20 recently used file/theme variants. It also limits
+// retained text and skips a single SVG larger than its whole memory budget.
+const bounded = runtime();
+bounded.start();
+const recentFiles = Array.from({ length: 21 }, (_, index) => new TFile(`cache-${index}.excalidraw`));
+async function displayThenUnload(host, file) {
+  const entry = host.mount(file);
+  entry.preview.loadFile();
+  await settle();
+  assert.equal(entry.button.firstElementChild.tagName, "IMG");
+  entry.preview.unload();
+}
+for (const file of recentFiles) await displayThenUnload(bounded, file);
+assert.equal(bounded.renders.length, 21);
+await displayThenUnload(bounded, recentFiles[20]);
+assert.equal(bounded.renders.length, 21);
+await displayThenUnload(bounded, recentFiles[0]);
+assert.equal(bounded.renders.length, 22, "The oldest completed entry must be evicted.");
+bounded.unload();
+
+const memory = runtime();
+memory.useRenderer(async () => "s".repeat(768 * 1024)); // 1.5 MiB UTF-16 text.
+memory.start();
+const memoryFiles = [new TFile("memory-a.excalidraw"), new TFile("memory-b.excalidraw"), new TFile("memory-c.excalidraw")];
+for (const file of memoryFiles) await displayThenUnload(memory, file);
+await displayThenUnload(memory, memoryFiles[2]);
+assert.equal(memory.renders.length, 3);
+await displayThenUnload(memory, memoryFiles[0]);
+assert.equal(memory.renders.length, 4, "The text budget must evict an entry before the count limit is reached.");
+memory.useRenderer(async () => "s".repeat(2 * 1024 * 1024 + 1));
+const large = new TFile("large.excalidraw");
+await displayThenUnload(memory, large);
+await displayThenUnload(memory, large);
+assert.equal(memory.renders.length, 6, "An oversized SVG may be displayed but must not remain cached.");
+memory.unload();
+
+// Failed exports are not cached; a deliberate retry can recover unchanged data.
+const retry = runtime();
+retry.useRenderer(async () => { throw new Error("Temporary read error"); });
+retry.start();
+const retryView = retry.mount();
+retryView.preview.loadFile();
+await settle();
+assert.match(retryView.button.textContent, /Temporary read error/);
+retry.useRenderer(async () => "<svg>recovered</svg>");
+retryView.preview.loadFile();
+await settle();
+assert.equal(retry.renders.length, 2);
+assert.equal(retryView.button.firstElementChild.tagName, "IMG");
+retry.unload();
+
+// Light and dark results are distinct, but switching back can reuse a result.
+// File stats also detect a change when a host reload arrives before its event.
+const themes = runtime();
+themes.start();
+const themed = themes.mount();
+themed.preview.loadFile();
+await settle();
+themes.doc.body.classList.add("theme-dark");
+themes.app.workspace.emit("css-change");
+await settle();
+assert.equal(themes.renders.length, 2);
+assert.deepEqual(themes.renders.map(entry => entry.dark), [false, true]);
+themes.doc.body.classList.remove("theme-dark");
+themes.app.workspace.emit("css-change");
+await settle();
+assert.equal(themes.renders.length, 2);
+themed.file.stat.mtime++;
+themed.preview.loadFile();
+await settle();
+assert.equal(themes.renders.length, 3);
+themes.unload();
+
+console.log("Drawing embeds: lifecycle, shared exports, bounded cache, cancellation, refresh and dimensions passed.");

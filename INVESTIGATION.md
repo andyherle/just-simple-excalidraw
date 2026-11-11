@@ -2,7 +2,7 @@
 
 Date: 11 November 2026
 
-Status: working source prototype; automated checks pass; live Obsidian validation remains open.
+Status: version 0.1.12 test build; live Obsidian validation remains open.
 
 ## Finding
 
@@ -70,6 +70,10 @@ notice names the drawing that was created.
 - Preview listeners handle save, rename, delete, recreation and theme changes.
   Older async exports cannot replace newer results. URLs and listeners are
   removed when a preview unloads.
+- `src/drawing-preview-cache.ts` shares exports for the same file version and
+  theme. It runs at most two exports at once and retains at most 20 results
+  within a 4 MiB SVG text budget. It cancels obsolete queued work. An export
+  already inside Excalidraw completes before its result can be discarded.
 - The build still uses local font data and has no new dependency. Drawing
   previews reject external image URLs rather than retrieve them.
 - Development-vault installation is now opt-in with `JSE_DEV_VAULT`. The
@@ -97,7 +101,9 @@ This branch supports raw `.excalidraw` JSON only. It does not add parsing for
 `.excalidraw.md`, an inline drawing editor, frame/element crops, OCR, sync,
 or a drawing library. A fragment such as `#section` shows the whole drawing.
 Preview refresh follows saved file changes rather than each unsaved stroke.
-Many repeated embeds currently render independently; there is no shared cache.
+Repeated embeds share their SVG export. Each displayed preview owns its image
+Blob URL and releases it on unload. The cache limit does not limit the memory
+used by images currently displayed in notes.
 
 ## Validation
 
@@ -109,6 +115,10 @@ below the existing 5,000,000-byte release limit.
 The new tests exercise source-aware paths, native open options, concurrent
 creation, note changes during creation, non-drawing link delegation, preview
 updates, deletion and recreation, stale async results, and unload cleanup.
+The QA pass also covers cache limits, shared in-flight exports, export
+concurrency, unchanged-theme events, and target-pane changes during creation.
+The tests inject a preview renderer; they do not validate the real SVG output
+inside a running Obsidian app.
 
 A live Obsidian 1.15.0 test was attempted in a new test vault. The environment
 blocked socket creation during app startup. Its approval policy rejected
@@ -125,15 +135,15 @@ Remaining host checks:
 
 ## Test installation
 
-Use a separate test vault for this prototype. The plugin ID remains
+The plugin ID remains
 `just-simple-excalidraw`; it replaces that plugin in the test vault.
 
-In the separately supplied ZIP, copy `main.js`, `manifest.json`, and
-`styles.css` from `plugin/` into the vault's
+Copy `main.js`, `manifest.json`, and `styles.css` from the release into the vault's
 `.obsidian/plugins/just-simple-excalidraw/` folder.
 Restart Obsidian and enable Just Simple Excalidraw in Community plugins.
-The package also contains a Git patch with all source changes, based on the
-upstream commit above.
+Check that its displayed version is 0.1.12. The test ZIP contains a
+`just-simple-excalidraw` folder ready to copy into `.obsidian/plugins/`.
+See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the test checklist.
 
 For a source build:
 
@@ -148,7 +158,7 @@ For this source build, copy those three generated files from `dist/`.
 
 The investigation branch is `investigate/native-drawing-embeds` in
 [andyherle/just-simple-excalidraw](https://github.com/andyherle/just-simple-excalidraw).
-It is a prototype for review and live testing, not a published stable release.
+Version 0.1.12 is for review and live testing. It is not marked as stable.
 No upstream PR, issue or comment was created.
 
 ## Sources

@@ -29,11 +29,17 @@ jobs:
         with:
           subject-path: |
             dist/main.js
+            dist/manifest.json
             dist/styles.css
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
+          # This fork's native embed build needs live Obsidian validation.
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          body_path: RELEASE_NOTES.md
           files: |
             dist/main.js
             dist/manifest.json

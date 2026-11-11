@@ -1,9 +1,10 @@
-> **Investigation build: native note embeds.** This branch adds previews for
+> **0.1.12 test build: native note embeds.** This branch adds previews for
 > `![[drawing.excalidraw]]`, a note editor action to create and embed a drawing,
 > and creation from unresolved drawing links. It is based on upstream 0.1.11.
 > Automated checks pass. A live Obsidian test is still required. See
 > [INVESTIGATION.md](INVESTIGATION.md) for behavior, compatibility limits,
-> validation results, and installation steps.
+> validation results, and installation steps. [RELEASE_NOTES.md](RELEASE_NOTES.md)
+> contains the test steps and QA changes for 0.1.12.
 
 > **Fixed in v0.1.7:** earlier versions could overwrite a drawing when switching
 > files in the same tab. Update to this version, and back up your `.excalidraw`
@@ -178,8 +179,9 @@ npm run dev
 ## Release
 
 Create a Git tag that exactly matches `manifest.json`'s version (for example,
-`0.1.0`). The release workflow builds and attaches exactly `main.js`,
-`manifest.json`, and `styles.css` to the GitHub release.
+`0.1.12`). The release workflow checks the versions, builds the plugin, and
+attaches `main.js`, `manifest.json`, and `styles.css` to the GitHub release.
+This fork marks releases as pre-releases while live Obsidian checks remain open.
 
 ## License and acknowledgements
 

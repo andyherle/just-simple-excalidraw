@@ -157,10 +157,12 @@ export default class JustSimpleExcalidrawPlugin extends Plugin {
     registerDrawingLinks(this, {
       createDrawing: (parent, open) => this.createDrawing(parent, open),
       createDrawingAtPath: (path) => this.createDrawingAtPath(path),
-      openDrawing: (file, newLeaf, state) => this.openDrawing(file, newLeaf, state)
+      openDrawing: (file, newLeaf, state, targetLeaf) => this.openDrawing(file, newLeaf, state, targetLeaf)
     });
-    registerDrawingEmbeds(this, async (file, dark) => {
-      const scene: unknown = JSON.parse(await this.app.vault.cachedRead(file));
+    registerDrawingEmbeds(this, async (file, dark, signal) => {
+      const contents = await this.app.vault.cachedRead(file);
+      signal?.throwIfAborted();
+      const scene: unknown = JSON.parse(contents);
       if (!isStoredScene(scene)) throw new Error("The file does not contain a valid Excalidraw scene.");
       const elements = drawingLibrary.getNonDeletedElements(drawingLibrary.restoreElements(scene.elements, null));
       if (!elements.length) return null;
@@ -169,6 +171,7 @@ export default class JustSimpleExcalidrawPlugin extends Plugin {
           throw new Error("Preview images must be stored inside the drawing and be 10 MiB or smaller.");
         }
       }
+      signal?.throwIfAborted();
       const svg = await drawingLibrary.exportToSvg({
         elements,
         appState: { ...scene.appState, exportBackground: false, exportEmbedScene: false, exportWithDarkMode: dark },
@@ -176,6 +179,7 @@ export default class JustSimpleExcalidrawPlugin extends Plugin {
         exportPadding: 12,
         renderEmbeddables: false
       });
+      signal?.throwIfAborted();
       return new XMLSerializer().serializeToString(svg);
     });
   }
@@ -230,10 +234,13 @@ export default class JustSimpleExcalidrawPlugin extends Plugin {
     }, null, 2));
   }
 
-  async openDrawing(file: TFile, newLeaf: PaneType | boolean = "tab", state?: OpenViewState): Promise<void> {
+  async openDrawing(file: TFile, newLeaf: PaneType | boolean = "tab", state?: OpenViewState, targetLeaf?: WorkspaceLeaf): Promise<void> {
     const owner = this.getFileOwner(file);
-    if (owner) owner.activate();
-    else await this.app.workspace.getLeaf(newLeaf).openFile(file, state);
+    if (owner) {
+      if (state?.active !== false) owner.activate();
+    } else {
+      await (targetLeaf ?? this.app.workspace.getLeaf(newLeaf)).openFile(file, state);
+    }
   }
 
   claimFile(file: TFile, view: ExcalidrawView): boolean {

@@ -58,6 +58,11 @@ function runtime({ creationGate = true } = {}) {
   const creationGateCalls = [];
   let waitToCreate;
   const workspace = {
+    activeLeaf: { id: "source-leaf" },
+    getLeaf(newLeaf) {
+      assert.equal(newLeaf, false, "Only the current-pane destination needs to be captured before creation.");
+      return this.activeLeaf;
+    },
     on(name, callback) { events.set(name, callback); return {}; },
     async openLinkText(...args) { delegated.push({ receiver: this, args }); }
   };
@@ -156,7 +161,7 @@ function editor(text) {
 // A missing drawing is resolved from its source note, never the active note.
 const paths = runtime();
 assert.equal(getDrawingTargetPath(paths.app, "diagram.excalidraw", "Notes/source.md"), "Drawings/diagram.excalidraw");
-assert.deepEqual(paths.preferredParentCalls.at(-1), { source: "Notes/source.md", target: "diagram.excalidraw" });
+assert.deepEqual(paths.preferredParentCalls.at(-1), { source: "Notes/source.md", target: undefined });
 assert.equal(getDrawingTargetPath(paths.app, "./diagram.excalidraw", "Notes/source.md"), "Notes/diagram.excalidraw");
 assert.equal(getDrawingTargetPath(paths.app, "../diagram.excalidraw", "Notes/source.md"), "diagram.excalidraw");
 assert.equal(getDrawingTargetPath(paths.app, "/Shared/diagram.excalidraw", "Notes/source.md"), "Shared/diagram.excalidraw");
@@ -205,11 +210,24 @@ delayed.resolve();
 await Promise.all([first, second]);
 assert.equal(links.files.has("Drawings/diagram.excalidraw.md"), false);
 assert.equal(links.opened[0], links.opened[1]);
-assert.deepEqual(links.openOptions, [[false, undefined], [false, undefined]], "A new link uses the native current-pane default.");
+assert.deepEqual(links.openOptions, [
+  [false, undefined, links.app.workspace.activeLeaf],
+  [false, undefined, links.app.workspace.activeLeaf]
+], "A new link uses the native current-pane default and preserves its destination.");
+
+const focus = runtime();
+const sourceLeaf = focus.app.workspace.activeLeaf;
+const focusDelay = focus.delay();
+const focusTask = focus.app.workspace.openLinkText("./focused.excalidraw", "Notes/source.md");
+focus.app.workspace.activeLeaf = { id: "another-leaf" };
+focusDelay.resolve();
+await focusTask;
+assert.equal(focus.openOptions[0][2], sourceLeaf, "A pane switch during creation must not replace the newly active note.");
+assert.notEqual(focus.openOptions[0][2], focus.app.workspace.activeLeaf);
 
 const split = runtime();
 await split.app.workspace.openLinkText("./split.excalidraw", "Notes/source.md", "split", viewState);
-assert.deepEqual(split.openOptions[0], ["split", viewState], "New drawings must retain pane and focus options.");
+assert.deepEqual(split.openOptions[0], ["split", viewState, undefined], "New drawings must retain pane and focus options.");
 
 // Resolve an existing file even when the metadata index has not caught up.
 const lag = runtime();
@@ -218,7 +236,7 @@ lag.files.set("Drawings/diagram.excalidraw", new TFile("Drawings/diagram.excalid
 await lag.app.workspace.openLinkText("diagram.excalidraw", "Notes/source.md", "window", viewState);
 assert.equal(lag.created.length, 0);
 assert.equal(lag.opened[0], lag.files.get("Drawings/diagram.excalidraw"));
-assert.deepEqual(lag.openOptions[0], ["window", viewState], "Cache-lag files must retain the native open options.");
+assert.deepEqual(lag.openOptions[0], ["window", viewState, undefined], "Cache-lag files must retain the native open options.");
 
 // A file created by another caller while we wait is opened, never overwritten.
 const race = runtime();
@@ -248,6 +266,7 @@ assert.equal(context.items[0].title, "Create new drawing and embed");
 await context.items[0].click();
 assert.equal(noteEditor.getValue(), "Diagram: ![[Drawings/New drawing.excalidraw]]");
 assert.deepEqual(insert.created[0], { parent: "Drawings", open: false });
+assert.deepEqual(insert.preferredParentCalls[0], { source: "Notes/source.md", target: undefined }, "Use the configured new-note folder without advertising an unregistered file creator.");
 assert.equal(insert.opened.length, 1);
 assert.deepEqual(insert.openOptions[0], [], "Create-and-embed retains the drawing action's new-tab default.");
 assert.equal(insert.commands[0].editorCheckCallback(true, noteEditor, info), true);

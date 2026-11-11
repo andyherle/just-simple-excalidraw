@@ -1,10 +1,10 @@
 import { Notice, TFile, TFolder } from "obsidian";
-import type { App, Editor, EditorPosition, MarkdownFileInfo, OpenViewState, PaneType, Plugin } from "obsidian";
+import type { App, Editor, EditorPosition, MarkdownFileInfo, OpenViewState, PaneType, Plugin, WorkspaceLeaf } from "obsidian";
 
 export interface DrawingActions {
   createDrawing(parentPath?: string, open?: boolean): Promise<TFile>;
   createDrawingAtPath(path: string): Promise<TFile>;
-  openDrawing(file: TFile, newLeaf?: PaneType | boolean, openViewState?: OpenViewState): Promise<void>;
+  openDrawing(file: TFile, newLeaf?: PaneType | boolean, openViewState?: OpenViewState, targetLeaf?: WorkspaceLeaf): Promise<void>;
 }
 
 type FileCreationGate = (extension: string, ...args: unknown[]) => boolean;
@@ -43,7 +43,9 @@ export function getDrawingTargetPath(app: App, linktext: string, sourcePath: str
     return vaultPath(`${parent ? `${parent}/` : ""}${target}`);
   }
   if (target.includes("/")) return vaultPath(target);
-  const parent = app.fileManager.getNewFileParent(sourcePath, target).path;
+  // This plugin uses the configured new-note folder. Passing our unregistered
+  // file-creator extension makes the host log an error before that same fallback.
+  const parent = app.fileManager.getNewFileParent(sourcePath).path;
   return vaultPath(`${parent && parent !== "/" ? `${parent}/` : ""}${target}`);
 }
 
@@ -83,7 +85,7 @@ export function registerDrawingLinks(plugin: Plugin, actions: DrawingActions): v
     const from = { ...editor.getCursor("from") };
     const to = { ...editor.getCursor("to") };
     try {
-      const parent = app.fileManager.getNewFileParent(sourcePath, "Drawing.excalidraw").path;
+      const parent = app.fileManager.getNewFileParent(sourcePath).path;
       const file = await actions.createDrawing(parent === "/" ? "" : parent, false);
       // The same editor object can be reused for another note while creation
       // is pending. Never insert into that replacement document.
@@ -147,10 +149,14 @@ export function registerDrawingLinks(plugin: Plugin, actions: DrawingActions): v
     }
     try {
       const path = getDrawingTargetPath(app, target, sourcePath)!;
+      const newLeaf = options[0] ?? false;
+      // Native openLinkText chooses its destination before asynchronous file
+      // creation. Preserve that pane if the user switches tabs while we wait.
+      const targetLeaf = newLeaf === false ? app.workspace.getLeaf(false) : undefined;
       const existing = app.vault.getAbstractFileByPath(path);
       if (existing && !(existing instanceof TFile)) throw new Error("A folder already uses this drawing path.");
       if (existing instanceof TFile) {
-        await actions.openDrawing(existing, options[0] ?? false, options[1]);
+        await actions.openDrawing(existing, newLeaf, options[1], targetLeaf);
         return;
       }
       let pending = creating.get(path);
@@ -173,7 +179,7 @@ export function registerDrawingLinks(plugin: Plugin, actions: DrawingActions): v
       let file: TFile;
       try { file = await pending; }
       finally { if (creating.get(path) === pending) creating.delete(path); }
-      if (active) await actions.openDrawing(file, options[0] ?? false, options[1]);
+      if (active) await actions.openDrawing(file, newLeaf, options[1], targetLeaf);
     } catch (error) {
       // Falling through to the host would create drawing.excalidraw.md.
       reportError(error);

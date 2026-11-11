@@ -1,0 +1,32 @@
+name: Contribution check
+on:
+  push:
+    branches: [qa/upstream-contribution]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.13.1
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - name: Prepare isolated review workspace
+        run: |
+          git archive HEAD -o /tmp/jse-source.tar
+          git archive 7dc7356cb698d8f0ff0d41f2639d5fa1e046dc23 -o /tmp/jse-base.tar
+          tar -czf /tmp/jse-deps.tar.gz node_modules
+      - uses: actions/upload-artifact@v6
+        with:
+          name: contribution-review-workspace
+          retention-days: 1
+          path: |
+            /tmp/jse-source.tar
+            /tmp/jse-base.tar
+            /tmp/jse-deps.tar.gz

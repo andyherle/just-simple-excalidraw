@@ -9,7 +9,7 @@ jobs:
     if: github.repository == 'andyherle/just-simple-excalidraw'
     runs-on: ubuntu-latest
     env:
-      REVIEW_DIR: ${{ runner.temp }}/jse-review/source
+      REVIEW_DIR: /tmp/jse-review/source
     steps:
       - uses: actions/checkout@v7
         with:

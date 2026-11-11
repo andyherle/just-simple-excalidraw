@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const projectDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const mocks = {
+  "./src/drawing-preview-visibility": "export const registerPreviewVisibility = () => undefined;",
   "./src/drawing-links": "export const registerDrawingLinks = () => {};",
   "./src/drawing-embeds": "export const registerDrawingEmbeds = () => {};",
   obsidian: `

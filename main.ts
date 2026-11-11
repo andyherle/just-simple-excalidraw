@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { fontMime, setCustomFont } from "./src/custom-font";
 import { registerDrawingEmbeds } from "./src/drawing-embeds";
 import { registerDrawingLinks } from "./src/drawing-links";
+import { createPreviewRenderer } from "./src/drawing-preview";
+import { registerPreviewVisibility } from "./src/drawing-preview-visibility";
 // Initialize the library only after reading the optional vault font. Its font
 // registry captures asset URIs on first initialization.
 let drawingLibrary: typeof import("@excalidraw/excalidraw");
@@ -159,29 +161,7 @@ export default class JustSimpleExcalidrawPlugin extends Plugin {
       createDrawingAtPath: (path) => this.createDrawingAtPath(path),
       openDrawing: (file, newLeaf, state, targetLeaf) => this.openDrawing(file, newLeaf, state, targetLeaf)
     });
-    registerDrawingEmbeds(this, async (file, dark, signal) => {
-      const contents = await this.app.vault.cachedRead(file);
-      signal?.throwIfAborted();
-      const scene: unknown = JSON.parse(contents);
-      if (!isStoredScene(scene)) throw new Error("The file does not contain a valid Excalidraw scene.");
-      const elements = drawingLibrary.getNonDeletedElements(drawingLibrary.restoreElements(scene.elements, null));
-      if (!elements.length) return null;
-      for (const image of Object.values(scene.files ?? {})) {
-        if (!/^data:image\/[a-z0-9.+-]+[;,]/i.test(image.dataURL) || imageByteLength(image.dataURL) > MAX_IMAGE_BYTES) {
-          throw new Error("Preview images must be stored inside the drawing and be 10 MiB or smaller.");
-        }
-      }
-      signal?.throwIfAborted();
-      const svg = await drawingLibrary.exportToSvg({
-        elements,
-        appState: { ...scene.appState, exportBackground: false, exportEmbedScene: false, exportWithDarkMode: dark },
-        files: scene.files ?? {},
-        exportPadding: 12,
-        renderEmbeddables: false
-      });
-      signal?.throwIfAborted();
-      return new XMLSerializer().serializeToString(svg);
-    });
+    registerDrawingEmbeds(this, createPreviewRenderer(this.app, drawingLibrary), registerPreviewVisibility(this));
   }
 
   async createDrawing(parentPath = "", open = true): Promise<TFile> {

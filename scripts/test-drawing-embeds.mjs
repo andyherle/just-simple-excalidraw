@@ -191,11 +191,11 @@ function runtime() {
   };
   return {
     ...page, app, registry, registration, unregistration, renders, opened, writes, files,
-    start() {
+    start(watch) {
       registerDrawingEmbeds(plugin, (file, dark, signal) => {
         renders.push({ file, dark, signal });
         return renderer(file, dark, signal);
-      });
+      }, watch);
     },
     useRenderer(next) { renderer = next; },
     mount(file = new TFile("Drawings/diagram.excalidraw")) {
@@ -240,7 +240,10 @@ assert.equal(firstImage.draggable, false);
 assert.equal(basic.blobs.get(firstImage.src).type, "image/svg+xml");
 assert.match(await basic.blobs.get(firstImage.src).text(), /Diagram/);
 assert.equal(drawing.button.getAttribute("aria-busy"), null);
-assert.equal(drawing.button.getAttribute("aria-label"), "Open diagram.excalidraw");
+assert.equal(drawing.button.getAttribute("aria-label"), null);
+assert.equal(drawing.button.title ?? "", "");
+assert.equal(drawing.container.childNodes[1].textContent, "Open diagram.excalidraw");
+assert.equal(drawing.button.getAttribute("aria-labelledby"), drawing.container.childNodes[1].id);
 const clicked = drawing.button.click();
 await settle();
 assert.equal(clicked.prevented && clicked.stopped, true);
@@ -345,7 +348,7 @@ race.app.vault.emit("modify", replacement);
 await settle();
 pending[7].reject(new Error("Invalid JSON"));
 await settle();
-assert.match(changing.button.textContent, /Cannot preview this drawing.*Invalid JSON/);
+assert.match(changing.button.textContent, /Cannot preview this drawing/);
 assert.equal(changing.button.getAttribute("aria-busy"), null);
 assert.deepEqual(race.writes, []);
 
@@ -526,3 +529,34 @@ assert.equal(themes.renders.length, 3);
 themes.unload();
 
 console.log("Drawing embeds: lifecycle, shared exports, bounded cache, cancellation, refresh and dimensions passed.");
+
+// Hiding a preview cancels work and frees its image. No timer runs in Source mode.
+const hidden = runtime();
+let toggle, visibilityCleanups = 0;
+hidden.start((_element, change) => { toggle = change; return { refresh() {}, dispose() { visibilityCleanups++; } }; });
+const item = hidden.mount();
+item.preview.loadFile(); await settle();
+assert.equal(hidden.renders.length, 0);
+assert.equal(item.container.hidden, true);
+toggle(true); await settle();
+assert.equal(hidden.renders.length, 1);
+assert.equal(item.container.hidden, false);
+for (let i = 0; i < 100; i++) {
+  toggle(false); await settle();
+  assert.equal(item.button.firstElementChild, null);
+  toggle(true); await settle();
+}
+assert.equal(hidden.renders.length, 1, "Showing the same file must reuse its SVG.");
+assert.equal(hidden.blobs.size - hidden.revoked.length, 1, "Only the current image URL stays live.");
+hidden.doc.body.classList.add("theme-dark"); hidden.app.workspace.emit("css-change"); await settle();
+assert.equal(hidden.renders.at(-1).dark, true);
+hidden.doc.body.classList.remove("theme-dark"); hidden.app.workspace.emit("css-change"); await settle();
+assert.equal(hidden.renders.length, 2, "Returning to light mode must reuse its SVG.");
+item.button.firstElementChild.onerror();
+assert.match(item.button.textContent, /Cannot show preview/);
+assert.equal(hidden.blobs.size, hidden.revoked.length);
+hidden.unload();
+assert.equal(visibilityCleanups, 1);
+assert.equal(hidden.app.vault.count() + hidden.app.workspace.count(), 0);
+assert.equal(hidden.observers.size, 0);
+console.log("Hover labels, hidden previews, repeated toggles, decode errors, and cleanup passed.");

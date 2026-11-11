@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 
 const mocks = {
+  "./src/drawing-preview-visibility": "export const registerPreviewVisibility = () => undefined;",
   './src/drawing-links': 'export const registerDrawingLinks = () => {};',
   './src/drawing-embeds': 'export const registerDrawingEmbeds = () => {};',
   obsidian: `

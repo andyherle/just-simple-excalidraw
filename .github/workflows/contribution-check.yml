@@ -3,10 +3,13 @@ on:
   push:
     branches: [qa/upstream-contribution]
 permissions:
-  contents: read
+  contents: write
 jobs:
   check:
+    if: github.repository == 'andyherle/just-simple-excalidraw'
     runs-on: ubuntu-latest
+    env:
+      REVIEW_DIR: ${{ runner.temp }}/jse-review/source
     steps:
       - uses: actions/checkout@v7
         with:
@@ -15,18 +18,42 @@ jobs:
         with:
           node-version: 22.13.1
           cache: npm
-      - run: npm ci
-      - run: npm run check
-      - name: Prepare isolated review workspace
+      - name: Prepare the clean contribution
         run: |
-          git archive HEAD -o /tmp/jse-source.tar
-          git archive 7dc7356cb698d8f0ff0d41f2639d5fa1e046dc23 -o /tmp/jse-base.tar
-          tar -czf /tmp/jse-deps.tar.gz node_modules
+          mkdir -p "$(dirname "$REVIEW_DIR")"
+          git worktree add --detach "$REVIEW_DIR" 7dc7356cb698d8f0ff0d41f2639d5fa1e046dc23
+          python .github/review/prepare.py "$GITHUB_WORKSPACE" "$REVIEW_DIR"
+          cd "$REVIEW_DIR"
+          git add README.md esbuild.config.mjs main.ts package.json scripts/audit-release.mjs scripts/test-drawing-embeds.mjs scripts/test-file-isolation.mjs scripts/test-font-loading.mjs scripts/test-theme.mjs src/styles.css src/drawing-embeds.ts src/drawing-preview-cache.ts src/drawing-preview-visibility.ts src/drawing-preview.ts
+          git diff --cached --check
+          git diff --cached --stat
+          test "$(git write-tree)" = bc1836f16c0be755cdad224aee1e000fbe4a4755
+      - run: npm ci
+        working-directory: ${{ env.REVIEW_DIR }}
+      - run: npm run check
+        working-directory: ${{ env.REVIEW_DIR }}
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: ${{ env.REVIEW_DIR }}
+      - name: Save one clean contribution commit
+        id: source
+        working-directory: ${{ env.REVIEW_DIR }}
+        env:
+          GIT_AUTHOR_NAME: ${{ github.actor }}
+          GIT_AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          test "$(git write-tree)" = bc1836f16c0be755cdad224aee1e000fbe4a4755
+          test -z "$(git -C "$GITHUB_WORKSPACE" ls-remote --heads origin refs/heads/contribute/note-previews)"
+          commit=$(git commit-tree bc1836f16c0be755cdad224aee1e000fbe4a4755 -p 7dc7356cb698d8f0ff0d41f2639d5fa1e046dc23 -m 'Add read-only previews for native Excalidraw files')
+          git -C "$GITHUB_WORKSPACE" push origin "$commit:refs/heads/contribute/note-previews"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "Checked source: $commit" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v6
         with:
-          name: contribution-review-workspace
-          retention-days: 1
+          name: checked-upstream-preview-build
+          retention-days: 7
           path: |
-            /tmp/jse-source.tar
-            /tmp/jse-base.tar
-            /tmp/jse-deps.tar.gz
+            ${{ env.REVIEW_DIR }}/dist/main.js
+            ${{ env.REVIEW_DIR }}/dist/manifest.json
+            ${{ env.REVIEW_DIR }}/dist/styles.css

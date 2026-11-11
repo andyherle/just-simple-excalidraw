@@ -3,9 +3,14 @@ name: Release
 on:
   push:
     tags: ["*"]
-  # Allow an existing release to be built after Actions are enabled in a fork.
-  release:
-    types: [edited]
+  # Build the selected existing tag from Actions > Release > Run workflow.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build (for example, 0.1.12)"
+        required: true
+        default: "0.1.12"
+        type: string
 
 permissions:
   contents: write
@@ -14,11 +19,11 @@ permissions:
 
 jobs:
   publish:
-    # Do not rebuild an existing stable release when its notes change.
-    if: github.event_name != 'release' || github.event.release.prerelease
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-node@v6
         with:
           node-version: 22.13.1
@@ -26,7 +31,7 @@ jobs:
       - run: npm ci
       - name: Check tag and manifest version
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: node -e "const fs=require('fs'); const version=JSON.parse(fs.readFileSync('manifest.json')).version; if (version !== process.env.TAG) { throw new Error('Git tag must exactly match manifest.json version'); }"
       - run: npm run check
       - name: Attest release assets
@@ -39,7 +44,10 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
-          prerelease: ${{ github.event_name == 'release' && github.event.release.prerelease }}
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' }}
+          make_latest: false
+          fail_on_unmatched_files: true
           files: |
             dist/main.js
             dist/manifest.json

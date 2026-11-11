@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     tags: ["*"]
+  # Allow an existing release to be built after Actions are enabled in a fork.
+  release:
+    types: [edited]
 
 permissions:
   contents: write
@@ -11,6 +14,8 @@ permissions:
 
 jobs:
   publish:
+    # Do not rebuild an existing stable release when its notes change.
+    if: github.event_name != 'release' || github.event.release.prerelease
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -34,6 +39,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
+          prerelease: ${{ github.event_name == 'release' && github.event.release.prerelease }}
           files: |
             dist/main.js
             dist/manifest.json

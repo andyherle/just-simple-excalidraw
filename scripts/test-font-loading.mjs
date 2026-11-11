@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 
 const mocks = {
+  "./src/drawing-embeds": "export const registerDrawingEmbeds = () => {};",
   obsidian: `
     export class Plugin {
       constructor(){this.app=globalThis.fontApp;}

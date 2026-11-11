@@ -51,7 +51,7 @@ const context = await esbuild.context({
       });
     }
   }],
-  external: ["obsidian", "electron", ...builtinModules],
+  external: ["obsidian", "electron", "@codemirror/view", ...builtinModules],
   format: "cjs",
   target: "es2022",
   platform: "browser",

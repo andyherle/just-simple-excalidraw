@@ -2,6 +2,7 @@ import { FileView, Notice, Plugin, PluginSettingTab, Setting, TFile, WorkspaceLe
 import { createElement, useEffect, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { fontMime, setCustomFont } from "./src/custom-font";
+import { registerDrawingEmbeds } from "./src/drawing-embeds";
 // Initialize the library only after reading the optional vault font. Its font
 // registry captures asset URIs on first initialization.
 let drawingLibrary: typeof import("@excalidraw/excalidraw");
@@ -144,6 +145,7 @@ export default class JustSimpleExcalidrawPlugin extends Plugin {
     this.addSettingTab(new ExcalidrawFontSettings(this.app, this));
     this.registerView(VIEW_TYPE_EXCALIDRAW, (leaf) => new ExcalidrawView(leaf, this));
     this.registerExtensions(["excalidraw"], VIEW_TYPE_EXCALIDRAW);
+    registerDrawingEmbeds(this, drawingLibrary);
 
     this.addCommand({
       id: "new-excalidraw-drawing",

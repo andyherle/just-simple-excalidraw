@@ -33,7 +33,7 @@ const metadata = JSON.parse(metadataText);
 const externalRuntimeImports = [...new Set(Object.values(metadata.outputs).flatMap((output) =>
   output.imports.filter((entry) => entry.external).map((entry) => entry.path)
 ))];
-if (externalRuntimeImports.some((dependency) => dependency !== "obsidian")) {
+if (externalRuntimeImports.some((dependency) => dependency !== "obsidian" && dependency !== "@codemirror/view")) {
   throw new Error(`El bundle móvil contiene dependencias de ejecución no compatibles: ${externalRuntimeImports.join(", ")}.`);
 }
 if (main.includes("./fonts/") || styles.includes("./fonts/") || source.includes("EXCALIDRAW_ASSET_PATH")) {

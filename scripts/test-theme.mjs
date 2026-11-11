@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 
 const projectDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const mocks = {
+  "./src/drawing-links": "export const registerDrawingLinks = () => {};",
+  "./src/drawing-embeds": "export const registerDrawingEmbeds = () => {};",
   obsidian: `
+    export class TFolder {}
     export class TFile { constructor(path) { this.path = path; this.basename = path; } }
     globalThis.__themeTFile = TFile;
     export class FileView {

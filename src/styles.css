@@ -74,3 +74,37 @@
   overflow: auto;
   white-space: pre-wrap;
 }
+
+.just-simple-excalidraw-embed {
+  display: block;
+  max-width: 100%;
+}
+
+.just-simple-excalidraw-embed > button.just-simple-excalidraw-preview {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  height: auto;
+  min-height: 3rem;
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  background: transparent;
+  box-shadow: none;
+  white-space: normal;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.just-simple-excalidraw-preview:hover,
+.just-simple-excalidraw-preview:focus-visible {
+  border-color: var(--background-modifier-border-hover);
+}
+
+.just-simple-excalidraw-preview img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}

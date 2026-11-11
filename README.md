@@ -1,3 +1,10 @@
+> **Investigation build: native note embeds.** This branch adds previews for
+> `![[drawing.excalidraw]]`, a note editor action to create and embed a drawing,
+> and creation from unresolved drawing links. It is based on upstream 0.1.11.
+> Automated checks pass. A live Obsidian test is still required. See
+> [INVESTIGATION.md](INVESTIGATION.md) for behavior, compatibility limits,
+> validation results, and installation steps.
+
 > **Fixed in v0.1.7:** earlier versions could overwrite a drawing when switching
 > files in the same tab. Update to this version, and back up your `.excalidraw`
 > files before upgrading as a precaution.
@@ -53,8 +60,12 @@ supports the people building Excalidraw.
   overwrites.
 - Reports malformed drawings without changing the original file.
 - Follows Obsidian's light and dark theme.
+- Previews raw `.excalidraw` drawings inside notes in Reading view and Live Preview.
+- Creates and inserts a drawing from the note editor's right-click menu.
+- Creates a valid drawing when an unresolved `.excalidraw` link is opened.
 
-It deliberately does **not** add Markdown embedding, OCR, AI, collaboration,
+Upstream deliberately excludes Markdown embedding. This investigation branch
+adds only that note workflow. It does **not** add OCR, AI, collaboration,
 cloud sync, a drawing library, an account, or an export workflow. Those are
 valuable features in other tools; they are outside this plugin's purpose. The
 lean build also excludes Mermaid-to-Excalidraw conversion, web embeds, and the
@@ -88,8 +99,9 @@ Just Simple Excalidraw is local-first by design.
 
 - **Network:** it makes no runtime network requests. Its one bundled Latin font
   subset and all editor code are included in the release.
-- **Vault files:** it reads and writes only the `.excalidraw` file you open or
-  create in the vault.
+- **Vault files:** it reads drawings that you open or embed. It writes drawings
+  that you create or edit. The create-and-embed action also inserts a link into
+  the source note. Previews do not write to drawing files.
 - **Clipboard:** standard copy and paste actions, including pasting an image,
   run only after you invoke them. The plugin does not read the clipboard in the
   background.
@@ -152,9 +164,10 @@ npm run check
 ```
 
 `npm run check` type-checks the plugin, makes a production bundle without
-Mermaid, embeds the Latin font subset, installs the built plugin into the local
-development vault, and verifies both offline operation and the 5 MB Sync
-Standard file limit.
+Mermaid, embeds the Latin font subset, and verifies both offline operation and
+the 5 MB Sync Standard file limit. Output is written to `dist/`. To also install
+into a development vault, set `JSE_DEV_VAULT` to that vault's absolute path when
+running the build. A normal build does not modify a vault.
 
 For an editable development build:
 

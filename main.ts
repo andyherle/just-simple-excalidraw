@@ -1,7 +1,9 @@
-import { FileView, Notice, Plugin, PluginSettingTab, Setting, TFile, WorkspaceLeaf, arrayBufferToBase64, normalizePath } from "obsidian";
+import { FileView, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, WorkspaceLeaf, arrayBufferToBase64, normalizePath, type OpenViewState, type PaneType } from "obsidian";
 import { createElement, useEffect, useState, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { fontMime, setCustomFont } from "./src/custom-font";
+import { registerDrawingEmbeds } from "./src/drawing-embeds";
+import { registerDrawingLinks } from "./src/drawing-links";
 // Initialize the library only after reading the optional vault font. Its font
 // registry captures asset URIs on first initialization.
 let drawingLibrary: typeof import("@excalidraw/excalidraw");
@@ -151,9 +153,34 @@ export default class JustSimpleExcalidrawPlugin extends Plugin {
       callback: () => void this.createDrawing()
     });
     this.addRibbonIcon("pencil-ruler", "Create new Excalidraw drawing", () => void this.createDrawing());
+
+    registerDrawingLinks(this, {
+      createDrawing: (parent, open) => this.createDrawing(parent, open),
+      createDrawingAtPath: (path) => this.createDrawingAtPath(path),
+      openDrawing: (file, newLeaf, state) => this.openDrawing(file, newLeaf, state)
+    });
+    registerDrawingEmbeds(this, async (file, dark) => {
+      const scene: unknown = JSON.parse(await this.app.vault.cachedRead(file));
+      if (!isStoredScene(scene)) throw new Error("The file does not contain a valid Excalidraw scene.");
+      const elements = drawingLibrary.getNonDeletedElements(drawingLibrary.restoreElements(scene.elements, null));
+      if (!elements.length) return null;
+      for (const image of Object.values(scene.files ?? {})) {
+        if (!/^data:image\/[a-z0-9.+-]+[;,]/i.test(image.dataURL) || imageByteLength(image.dataURL) > MAX_IMAGE_BYTES) {
+          throw new Error("Preview images must be stored inside the drawing and be 10 MiB or smaller.");
+        }
+      }
+      const svg = await drawingLibrary.exportToSvg({
+        elements,
+        appState: { ...scene.appState, exportBackground: false, exportEmbedScene: false, exportWithDarkMode: dark },
+        files: scene.files ?? {},
+        exportPadding: 12,
+        renderEmbeddables: false
+      });
+      return new XMLSerializer().serializeToString(svg);
+    });
   }
 
-  async createDrawing(parentPath = ""): Promise<TFile> {
+  async createDrawing(parentPath = "", open = true): Promise<TFile> {
     const baseName = formatDrawingName(new Date());
     let sequence = 1;
     let path = normalizePath(`${parentPath ? `${parentPath}/` : ""}${baseName}.excalidraw`);
@@ -163,14 +190,50 @@ export default class JustSimpleExcalidrawPlugin extends Plugin {
       path = normalizePath(`${parentPath ? `${parentPath}/` : ""}${baseName} ${sequence}.excalidraw`);
     }
 
-    const file = await this.app.vault.create(path, JSON.stringify({
+    let file: TFile;
+    try {
+      file = await this.createDrawingAtPath(path);
+    } catch (error) {
+      // Two menu/command actions can choose the same timestamp before either
+      // create finishes. Retry with the next available name, never overwrite.
+      if (this.app.vault.getAbstractFileByPath(path)) return this.createDrawing(parentPath, open);
+      throw error;
+    }
+    if (open) await this.openDrawing(file);
+    return file;
+  }
+
+  async createDrawingAtPath(path: string): Promise<TFile> {
+    if (!/\.excalidraw$/i.test(path) || path.startsWith("/") ||
+      path.split("/").includes("..") || /[\\\u0000-\u001f:[\]|#]/.test(path)) {
+      throw new Error("Use a .excalidraw filename inside this vault.");
+    }
+    path = normalizePath(path);
+    const parts = path.split("/");
+    parts.pop();
+    for (let depth = 1; depth <= parts.length; depth++) {
+      const folderPath = parts.slice(0, depth).join("/");
+      const existing = this.app.vault.getAbstractFileByPath(folderPath);
+      if (existing && !(existing instanceof TFolder)) throw new Error("A file blocks the drawing folder.");
+      if (!existing) {
+        try { await this.app.vault.createFolder(folderPath); }
+        catch (error) {
+          if (!(this.app.vault.getAbstractFileByPath(folderPath) instanceof TFolder)) throw error;
+        }
+      }
+    }
+    return this.app.vault.create(path, JSON.stringify({
       type: "excalidraw",
       version: 2,
       source: "just-simple-excalidraw",
       ...emptyScene()
     }, null, 2));
-    await this.app.workspace.getLeaf("tab").openFile(file);
-    return file;
+  }
+
+  async openDrawing(file: TFile, newLeaf: PaneType | boolean = "tab", state?: OpenViewState): Promise<void> {
+    const owner = this.getFileOwner(file);
+    if (owner) owner.activate();
+    else await this.app.workspace.getLeaf(newLeaf).openFile(file, state);
   }
 
   claimFile(file: TFile, view: ExcalidrawView): boolean {

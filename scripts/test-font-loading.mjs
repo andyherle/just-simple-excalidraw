@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 
 const mocks = {
+  './src/drawing-links': 'export const registerDrawingLinks = () => {};',
+  './src/drawing-embeds': 'export const registerDrawingEmbeds = () => {};',
   obsidian: `
+    export class TFolder {}
     export class Plugin {
       constructor(){this.app=globalThis.fontApp;}
       async loadData(){return globalThis.fontSettings;}

@@ -159,10 +159,6 @@ returns focus to the original drawing and closes the duplicate pane.
 
 Requires Node.js 22.13 or later and npm.
 
-> **Development note**
-> Just Simple Excalidraw was unapologetically vibe-coded: built iteratively
-> with AI assistance, then tested and refined inside a real Obsidian vault.
-
 ```bash
 npm ci
 npm run check

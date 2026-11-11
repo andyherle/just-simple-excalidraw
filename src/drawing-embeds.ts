@@ -88,15 +88,15 @@ export class DrawingEmbed extends Component {
     container.hidden = !this.visible;
     if (this.watch) {
       this.visibilityWatch = this.watch(container, visible => {
-      if (this.stopped || this.visible === visible) return;
-      this.visible = visible;
-      container.hidden = !visible;
-      if (visible) this.loadFile();
-      else {
-        this.cancel();
-        this.revokeImage();
-        this.button?.replaceChildren();
-      }
+        if (this.stopped || this.visible === visible) return;
+        this.visible = visible;
+        container.hidden = !visible;
+        if (visible) this.loadFile();
+        else {
+          this.cancel();
+          this.revokeImage();
+          this.button?.replaceChildren();
+        }
       });
       const visibility = this.visibilityWatch;
       this.register(() => visibility.dispose());
@@ -188,9 +188,11 @@ export class DrawingEmbed extends Component {
       this.applySize();
     } catch (error) {
       if (this.stopped || !this.visible || this.missing || pending.signal.aborted || generation !== this.generation) return;
-      // Retry only after the file or theme changes, not each CSS event.
-      this.showMessage(error instanceof Error && error.message.startsWith("Preview")
-        ? error.message : "Cannot preview this drawing. Click to edit.");
+      const limited = error instanceof Error && error.message.startsWith("Preview");
+      // Size limits stay quiet. A temporary read error can be retried.
+      if (!limited && !(error instanceof SyntaxError)) this.requestedVersion = null;
+      this.showMessage(limited ? error.message
+        : `Cannot preview this drawing. ${error instanceof Error ? error.message : "Click to edit."}`);
     } finally {
       if (this.pending === pending) this.pending = null;
     }

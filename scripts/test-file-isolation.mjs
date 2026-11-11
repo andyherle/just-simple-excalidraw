@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 const projectDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const mocks = {
+  "./src/drawing-preview-visibility": "export const registerPreviewVisibility = () => undefined;",
+  "./src/drawing-links": "export const registerDrawingLinks = () => {};",
+  "./src/drawing-embeds": "export const registerDrawingEmbeds = () => {};",
   obsidian: `
+    export class TFolder {}
     export class TFile {
       constructor(path) {
         this.path = path;
@@ -218,6 +222,17 @@ await ownerView.onLoadFile(fileD);
 const canvasD = globalThis.__renderedCanvases.at(-1);
 canvasD.onChange([{ id: "D-edited", type: "rectangle" }], {}, {});
 const canvasesBeforeDuplicate = globalThis.__renderedCanvases.length;
+
+// A background link to an already open drawing must not steal focus. It
+// must also keep the existing owner instead of allocating another editor.
+const unrelatedFocus = { leaf: new globalThis.__testWorkspaceLeaf(), options: { focus: true } };
+globalThis.__activeLeaf = unrelatedFocus;
+await plugin.openDrawing(fileD, "tab", { active: false });
+assert.equal(globalThis.__activeLeaf, unrelatedFocus, "A background drawing open must preserve the active note.");
+assert.equal(globalThis.__renderedCanvases.length, canvasesBeforeDuplicate);
+await plugin.openDrawing(fileD);
+assert.deepEqual(globalThis.__activeLeaf, { leaf: ownerLeaf, options: { focus: true } }, "An ordinary open must still activate the drawing owner.");
+
 duplicateView.file = fileD;
 await duplicateView.onLoadFile(fileD);
 
@@ -234,5 +249,13 @@ view.file = malformedFile;
 await view.onLoadFile(malformedFile);
 assert.equal(globalThis.__renderedCanvases.length, canvasesBeforeMalformedFile, "Malformed scene data must not mount an editable canvas.");
 await view.onUnloadFile(malformedFile);
+
+// getLeaf still throws in this fixture. A captured pane must be used directly,
+// even if another note became active while the drawing file was created.
+const capturedOpens = [];
+const capturedLeaf = { async openFile(file, state) { capturedOpens.push({ file, state }); } };
+const backgroundState = { active: false, eState: { focus: false } };
+await plugin.openDrawing(fileA, false, backgroundState, capturedLeaf);
+assert.deepEqual(capturedOpens, [{ file: fileA, state: backgroundState }], "Open in the captured pane and retain the requested focus state.");
 
 console.log("File isolation regression test passed.");

@@ -1,3 +1,10 @@
+## 0.1.13
+
+- Remove preview tooltips.
+- Hide previews in Source mode and while editing their links.
+- Limit large previews. Release hidden images.
+- Shorten the guide.
+
 # Changelog
 
 All notable changes to this project are documented here.

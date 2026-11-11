@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 
 const projectDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const releaseDirectory = path.join(projectDirectory, "dist");
-const vaultPluginDirectory = path.resolve(projectDirectory, "..", "..", "@Nexus-dev", ".obsidian", "plugins", "just-simple-excalidraw");
+// Install in a vault only when requested.
+const vaultPluginDirectory = process.env.JSE_DEV_VAULT
+  ? path.resolve(process.env.JSE_DEV_VAULT, ".obsidian", "plugins", "just-simple-excalidraw")
+  : null;
 const excalidrawDirectory = path.join(projectDirectory, "node_modules", "@excalidraw", "excalidraw", "dist", "prod");
 const latinExcalifont = "Excalifont/Excalifont-Regular-a88b72a24fb54c9f94e3b5fdaa7481c9.woff2";
 
@@ -74,5 +77,5 @@ const releaseStyles = `${compactStyles.content}\n\n${localCss}`;
 // reproducibility check compares this file with the release asset.
 await writeFile(path.join(projectDirectory, "main.js"), compactJavaScript.content, "utf8");
 await buildDistribution(releaseDirectory, compactJavaScript.content, releaseStyles);
-await buildDistribution(vaultPluginDirectory, compactJavaScript.content, releaseStyles);
+if (vaultPluginDirectory) await buildDistribution(vaultPluginDirectory, compactJavaScript.content, releaseStyles);
 console.log(`Bundle minimal: Mermaid excluido, ${compactJavaScript.count} referencias usan una fuente latina integrada y ${compactStyles.count} reglas CSS de fuente se han eliminado.`);

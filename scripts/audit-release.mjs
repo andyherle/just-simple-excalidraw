@@ -21,6 +21,19 @@ const [main, styles, manifestText, source, sourceStyles, metadataText] = await P
   readFile(path.join(projectDirectory, "build-meta.json"), "utf8")
 ]);
 const manifest = JSON.parse(manifestText);
+const [sourceManifest, packageJson, packageLock, versions] = await Promise.all([
+  "manifest.json", "package.json", "package-lock.json", "versions.json"
+].map(async (file) => JSON.parse(await readFile(path.join(projectDirectory, file), "utf8"))));
+if (!/^\d+\.\d+\.\d+$/.test(manifest.version) || !/^\d+\.\d+\.\d+$/.test(manifest.minAppVersion)) {
+  throw new Error("The plugin and minimum app versions must use numeric x.y.z format.");
+}
+if ([sourceManifest.version, packageJson.version, packageLock.version, packageLock.packages?.[""]?.version]
+  .some((version) => version !== manifest.version) || versions[manifest.version] !== manifest.minAppVersion) {
+  throw new Error("Release versions must match in the manifest, package files, and compatibility map.");
+}
+if (JSON.stringify(sourceManifest) !== JSON.stringify(manifest)) {
+  throw new Error("The built manifest must match the source manifest.");
+}
 assertNoFirebaseCredentials(main);
 assertNoFirebaseCredentials(await readFile(path.join(projectDirectory, "main.js"), "utf8"));
 if (manifest.id !== "just-simple-excalidraw" || !manifest.version || !manifest.minAppVersion) {
@@ -33,7 +46,7 @@ const metadata = JSON.parse(metadataText);
 const externalRuntimeImports = [...new Set(Object.values(metadata.outputs).flatMap((output) =>
   output.imports.filter((entry) => entry.external).map((entry) => entry.path)
 ))];
-if (externalRuntimeImports.some((dependency) => dependency !== "obsidian")) {
+if (externalRuntimeImports.some((dependency) => dependency !== "obsidian" && dependency !== "@codemirror/view")) {
   throw new Error(`El bundle móvil contiene dependencias de ejecución no compatibles: ${externalRuntimeImports.join(", ")}.`);
 }
 if (main.includes("./fonts/") || styles.includes("./fonts/") || source.includes("EXCALIDRAW_ASSET_PATH")) {

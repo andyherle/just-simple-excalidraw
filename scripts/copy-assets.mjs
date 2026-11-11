@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const projectDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const releaseDirectory = path.join(projectDirectory, "dist");
-// Build a portable distribution by default. Installing in a vault is explicit.
+// Install in a vault only when requested.
 const vaultPluginDirectory = process.env.JSE_DEV_VAULT
   ? path.resolve(process.env.JSE_DEV_VAULT, ".obsidian", "plugins", "just-simple-excalidraw")
   : null;

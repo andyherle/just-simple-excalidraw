@@ -19,7 +19,7 @@ interface PreviewJob {
   reject: (error: unknown) => void;
 }
 
-/** Share exports between embeds. Keep a small LRU of completed SVG text. */
+/** Share previews and limit the cache. */
 export class DrawingPreviewCache {
   private readonly generations = new WeakMap<TFile, number>();
   private readonly entries = new Map<TFile, Map<boolean, PreviewJob>>();
@@ -133,8 +133,7 @@ export class DrawingPreviewCache {
       if (job.version !== this.version(job.file)) { this.cancel(job); return; }
       job.state = "done";
       job.bytes = (svg?.length ?? 0) * 2;
-      // A large embedded image can exceed the budget by itself. Share its
-      // current export, but do not retain its SVG after the subscribers finish.
+      // Do not cache large previews.
       if (job.bytes <= MAX_TEXT_BYTES) {
         this.retained.add(job);
         this.retainedBytes += job.bytes;

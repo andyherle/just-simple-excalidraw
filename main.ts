@@ -198,8 +198,7 @@ export default class JustSimpleExcalidrawPlugin extends Plugin {
     try {
       file = await this.createDrawingAtPath(path);
     } catch (error) {
-      // Two menu/command actions can choose the same timestamp before either
-      // create finishes. Retry with the next available name, never overwrite.
+      // Two clicks may choose the same name. Do not overwrite.
       if (this.app.vault.getAbstractFileByPath(path)) return this.createDrawing(parentPath, open);
       throw error;
     }

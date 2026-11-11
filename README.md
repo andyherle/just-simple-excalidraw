@@ -1,10 +1,5 @@
-> **0.1.12 test build: native note embeds.** This branch adds previews for
-> `![[drawing.excalidraw]]`, a note editor action to create and embed a drawing,
-> and creation from unresolved drawing links. It is based on upstream 0.1.11.
-> Automated checks pass. A live Obsidian test is still required. See
-> [INVESTIGATION.md](INVESTIGATION.md) for behavior, compatibility limits,
-> validation results, and installation steps. [RELEASE_NOTES.md](RELEASE_NOTES.md)
-> contains the test steps and QA changes for 0.1.12.
+> **0.1.12 test build:** Show drawings in notes. Live testing is still needed.
+> See [release notes](RELEASE_NOTES.md) for test steps.
 
 > **Fixed in v0.1.7:** earlier versions could overwrite a drawing when switching
 > files in the same tab. Update to this version, and back up your `.excalidraw`
@@ -61,16 +56,12 @@ supports the people building Excalidraw.
   overwrites.
 - Reports malformed drawings without changing the original file.
 - Follows Obsidian's light and dark theme.
-- Previews raw `.excalidraw` drawings inside notes in Reading view and Live Preview.
-- Creates and inserts a drawing from the note editor's right-click menu.
-- Creates a valid drawing when an unresolved `.excalidraw` link is opened.
+- Shows `.excalidraw` drawings in notes.
+- Creates and embeds drawings from notes.
+- Creates drawings from missing `.excalidraw` links.
 
-Upstream deliberately excludes Markdown embedding. This investigation branch
-adds only that note workflow. It does **not** add OCR, AI, collaboration,
-cloud sync, a drawing library, an account, or an export workflow. Those are
-valuable features in other tools; they are outside this plugin's purpose. The
-lean build also excludes Mermaid-to-Excalidraw conversion, web embeds, and the
-related heavy dependency tree.
+It does not include OCR, AI, collaboration, cloud sync, a drawing library,
+accounts, or export tools. Mermaid conversion and web embeds are also excluded.
 
 ## Lean build and Obsidian Sync
 
@@ -100,9 +91,8 @@ Just Simple Excalidraw is local-first by design.
 
 - **Network:** it makes no runtime network requests. Its one bundled Latin font
   subset and all editor code are included in the release.
-- **Vault files:** it reads drawings that you open or embed. It writes drawings
-  that you create or edit. The create-and-embed action also inserts a link into
-  the source note. Previews do not write to drawing files.
+- **Vault files:** it reads drawings you open or embed. It saves drawings you
+  create or edit. A note changes only when you create and embed a drawing.
 - **Clipboard:** standard copy and paste actions, including pasting an image,
   run only after you invoke them. The plugin does not read the clipboard in the
   background.
@@ -139,6 +129,20 @@ Run **Create new Excalidraw drawing** from the command palette, or use the
 pencil ruler icon in the ribbon. The new file is created in the vault root
 using a timestamped `Drawing YYYY-MM-DD HH.MM.SS.excalidraw` name.
 
+### Drawings in notes
+
+Add `![[drawing.excalidraw]]` to a note. A preview shows in Reading view and
+Live Preview. Use `![[drawing.excalidraw|400]]` to set a width.
+Click the preview to edit. It updates after a save.
+
+Use **Create new drawing and embed** from a note's right-click menu or the
+command palette. Right-click a folder for **Create new drawing**.
+
+Open a missing `[[drawing.excalidraw]]` or `![[drawing.excalidraw]]` to
+create a blank drawing. Existing files are not replaced.
+
+Only `.excalidraw` files are supported, not `.excalidraw.md` or frame crops.
+
 ### One drawing, one editor
 
 Each `.excalidraw` file is editable in one Obsidian tab at a time. Opening a
@@ -164,11 +168,8 @@ npm ci
 npm run check
 ```
 
-`npm run check` type-checks the plugin, makes a production bundle without
-Mermaid, embeds the Latin font subset, and verifies both offline operation and
-the 5 MB Sync Standard file limit. Output is written to `dist/`. To also install
-into a development vault, set `JSE_DEV_VAULT` to that vault's absolute path when
-running the build. A normal build does not modify a vault.
+`npm run check` runs tests and build checks. Files go to `dist/`.
+Set `JSE_DEV_VAULT` to a test vault's path to install the build there.
 
 For an editable development build:
 
@@ -178,10 +179,8 @@ npm run dev
 
 ## Release
 
-Create a Git tag that exactly matches `manifest.json`'s version (for example,
-`0.1.12`). The release workflow checks the versions, builds the plugin, and
-attaches `main.js`, `manifest.json`, and `styles.css` to the GitHub release.
-This fork marks releases as pre-releases while live Obsidian checks remain open.
+Tag the version in `manifest.json` (for example, `0.1.12`) to create a
+GitHub release. This test build is marked as a pre-release.
 
 ## License and acknowledgements
 

@@ -2,9 +2,7 @@ import { Component, Notice, TFile, type App, type Plugin } from "obsidian";
 import { DrawingPreviewCache, type PreviewRenderer } from "./drawing-preview-cache";
 export type { PreviewRenderer } from "./drawing-preview-cache";
 
-// Obsidian has no public API for custom file embeds. Keep this small adapter
-// separate, check its shape, and never replace another plugin's renderer.
-// The host uses this same registry in Reading view and Live Preview.
+// Native embeds use an internal Obsidian API.
 interface EmbedContext {
   containerEl: HTMLElement;
   sourcePath?: string;
@@ -30,8 +28,7 @@ export function registerDrawingEmbeds(plugin: Plugin, render: PreviewRenderer): 
   }
 
   const cache = new DrawingPreviewCache(render);
-  // Invalidate once before individual previews receive the same event. File
-  // stats can be unchanged after a fast save, so events also advance a counter.
+  // Update after every file change.
   const invalidate = (file: unknown): void => { if (file instanceof TFile) cache.invalidate(file); };
   plugin.registerEvent(plugin.app.vault.on("modify", invalidate));
   plugin.registerEvent(plugin.app.vault.on("rename", invalidate));
@@ -53,7 +50,6 @@ export function registerDrawingEmbeds(plugin: Plugin, render: PreviewRenderer): 
   });
 }
 
-/** A read-only image. It never claims file ownership or saves a scene. */
 export class DrawingEmbed extends Component {
   private generation = 0;
   private stopped = true;
@@ -79,8 +75,7 @@ export class DrawingEmbed extends Component {
     this.stopped = false;
     this.requestedVersion = null;
     this.setActive(true);
-    // A host may reuse an unloaded component after the file was removed or
-    // recreated. Resolve its current identity before accepting another export.
+
     const current = this.app.vault.getAbstractFileByPath(this.file.path);
     this.missing = !(current instanceof TFile);
     if (current instanceof TFile) this.file = current;
@@ -122,8 +117,7 @@ export class DrawingEmbed extends Component {
     }));
     this.registerEvent(this.app.workspace.on("css-change", () => this.loadFile()));
 
-    // Attribute changes do not require another SVG export. Use the owning
-    // window so the same component works in desktop popout windows.
+    // Use the preview window for popouts.
     const Observer = doc.defaultView?.MutationObserver ?? MutationObserver;
     const observer = new Observer(() => this.applySize());
     observer.observe(container, { attributes: true, attributeFilter: ["width", "height"] });
@@ -140,14 +134,13 @@ export class DrawingEmbed extends Component {
     const generation = ++this.generation;
     this.pending?.abort();
     const pending = this.pending = new AbortController();
-    // Multiple host notifications in one turn need only the newest revision.
+
     queueMicrotask(() => {
       if (!pending.signal.aborted && !this.stopped && !this.missing) void this.refresh(generation, dark, pending);
     });
   }
 
-  // Element/section selection is outside this prototype. A subpath still
-  // displays the complete drawing and never changes its saved contents.
+  // Frame links show the whole drawing.
   setSubpath(_subpath: string): void { this.loadFile(); }
 
   onunload(): void {
@@ -183,8 +176,7 @@ export class DrawingEmbed extends Component {
       image.alt = this.file.basename;
       image.draggable = false;
       image.src = url;
-      // An SVG image does not execute scripts or open its embedded hyperlinks.
-      // Do not append SVG markup to the Obsidian document.
+      // Show SVG as an image, not HTML.
       this.revokeImage();
       this.objectUrl = url;
       this.image = image;

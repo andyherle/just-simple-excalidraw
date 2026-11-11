@@ -158,7 +158,6 @@ function editor(text) {
   };
 }
 
-// A missing drawing is resolved from its source note, never the active note.
 const paths = runtime();
 assert.equal(getDrawingTargetPath(paths.app, "diagram.excalidraw", "Notes/source.md"), "Drawings/diagram.excalidraw");
 assert.deepEqual(paths.preferredParentCalls.at(-1), { source: "Notes/source.md", target: undefined });
@@ -179,8 +178,6 @@ assert.deepEqual(links.delegated[0].args, ["note", "Notes/source.md", "split", v
 assert.equal(links.delegated[0].receiver, links.app.workspace);
 assert.equal(links.created.length, 0);
 
-// Let the host resolve a duplicate basename from the actual source note. Do
-// not substitute an active note or the configured new-file directory.
 const sourceResolved = runtime();
 const sourceDrawing = new TFile("Projects/sketch.excalidraw");
 sourceResolved.files.set(sourceDrawing.path, sourceDrawing);
@@ -229,7 +226,6 @@ const split = runtime();
 await split.app.workspace.openLinkText("./split.excalidraw", "Notes/source.md", "split", viewState);
 assert.deepEqual(split.openOptions[0], ["split", viewState, undefined], "New drawings must retain pane and focus options.");
 
-// Resolve an existing file even when the metadata index has not caught up.
 const lag = runtime();
 lag.app.metadataCache.getFirstLinkpathDest = () => null;
 lag.files.set("Drawings/diagram.excalidraw", new TFile("Drawings/diagram.excalidraw"));
@@ -238,7 +234,6 @@ assert.equal(lag.created.length, 0);
 assert.equal(lag.opened[0], lag.files.get("Drawings/diagram.excalidraw"));
 assert.deepEqual(lag.openOptions[0], ["window", viewState, undefined], "Cache-lag files must retain the native open options.");
 
-// A file created by another caller while we wait is opened, never overwritten.
 const race = runtime();
 const raceDelay = race.delay();
 const raceOpen = race.app.workspace.openLinkText("./race.excalidraw", "Notes/source.md");

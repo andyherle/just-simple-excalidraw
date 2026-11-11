@@ -6,8 +6,6 @@ import { fileURLToPath } from "node:url";
 const projectDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const notices = [];
 
-// A small host fixture, not an SVG renderer. Native widget creation still
-// requires a live Obsidian check; this suite exercises the async lifetime.
 class Component {
   cleanups = [];
   loaded = false;
@@ -211,7 +209,6 @@ function runtime() {
   };
 }
 
-// Missing or incompatible internal APIs must leave ordinary drawing use alone.
 for (const invalid of [undefined, {}, { embedByExtension: {} }, { embedByExtension: {}, registerExtensions() {} }]) {
   const host = runtime();
   host.app.embedRegistry = invalid;
@@ -229,8 +226,6 @@ occupied.unload();
 assert.equal(occupied.registry.embedByExtension.excalidraw, otherCreator);
 assert.equal(occupied.unregistration.length, 0);
 
-// Rendering uses an isolated image in its own window, never a scene editor or
-// inline SVG. Opening the preview retains the source note's link context.
 const basic = runtime();
 basic.start();
 assert.deepEqual(basic.registration, [["excalidraw"]]);
@@ -260,7 +255,6 @@ await settle();
 assert.equal(basic.renders.length, 1, "Unchanged theme and repeated host requests must reuse the displayed version.");
 assert.equal(basic.blobs.size, 1, "Repeated requests must not allocate another image URL.");
 
-// Dimensions update without re-export; invalid values cannot become CSS.
 drawing.container.setAttribute("width", "400");
 drawing.container.setAttribute("height", "200");
 assert.deepEqual(firstImage.style, { width: "400px", height: "200px" });
@@ -284,7 +278,6 @@ drawing.button.click();
 assert.equal(basic.opened.at(-1)[0], "Drawings/renamed.excalidraw");
 assert.equal(drawing.button.firstElementChild.alt, "renamed");
 
-// Older exports and failures cannot replace a newer render.
 const race = runtime();
 const pending = [];
 race.useRenderer(() => { const result = deferred(); pending.push(result); return result.promise; });
@@ -313,8 +306,6 @@ await settle();
 assert.equal(await race.blobs.get(changing.button.firstElementChild.src).text(), "<svg>newest</svg>");
 assert.deepEqual(race.revoked, [currentUrl]);
 
-// Deletion invalidates in-flight work. A newly created TFile at the same path
-// replaces the old identity, and unrelated creations do not wake the preview.
 race.app.vault.emit("modify", changing.file);
 await settle();
 const beforeDeleteUrl = changing.button.firstElementChild.src;
@@ -343,7 +334,6 @@ const countBeforeOldModify = pending.length;
 race.app.vault.emit("modify", changing.file);
 assert.equal(pending.length, countBeforeOldModify);
 
-// Empty scenes and read errors stay visible as messages and release images.
 const currentBeforeEmpty = changing.button.firstElementChild.src;
 race.app.vault.emit("modify", replacement);
 await settle();
@@ -359,8 +349,6 @@ assert.match(changing.button.textContent, /Cannot preview this drawing.*Invalid 
 assert.equal(changing.button.getAttribute("aria-busy"), null);
 assert.deepEqual(race.writes, []);
 
-// Plugin unload releases components even if another plugin replaced the
-// registry entry. Late promises and later host events must do no work.
 const survivor = basic.mount(new TFile("second.excalidraw"));
 survivor.preview.loadFile();
 await settle();
@@ -394,8 +382,6 @@ assert.equal(race.observers.size, 0);
 assert.equal(new Set(race.revoked).size, race.blobs.size);
 assert.equal(race.revoked.length, race.blobs.size, "Every created URL must be revoked once.");
 
-// Multiple notes share one export. Removing one subscriber must leave work
-// needed by another note alive; removing the last one cancels it.
 const sharing = runtime();
 let sharedResult = deferred();
 sharing.useRenderer(() => sharedResult.promise);
@@ -444,8 +430,6 @@ assert.equal(first.container.childNodes.length, 0, "A reused component must stil
 assert.equal(sharing.app.vault.count() + sharing.app.workspace.count(), 0);
 assert.equal(sharing.revoked.length, sharing.blobs.size);
 
-// Two exports may run at once. Repeated edits to a queued drawing keep only
-// its newest version; unloading a queued preview prevents its export entirely.
 const queued = runtime();
 const work = [];
 queued.useRenderer((file, dark, signal) => {
@@ -473,8 +457,6 @@ assert.equal(work.length, 3, "Obsolete and unloaded queued versions must not rea
 assert.equal(queueViews[2].button.firstElementChild.tagName, "IMG");
 queued.unload();
 
-// The cache keeps at most 20 recently used file/theme variants. It also limits
-// retained text and skips a single SVG larger than its whole memory budget.
 const bounded = runtime();
 bounded.start();
 const recentFiles = Array.from({ length: 21 }, (_, index) => new TFile(`cache-${index}.excalidraw`));
@@ -509,7 +491,6 @@ await displayThenUnload(memory, large);
 assert.equal(memory.renders.length, 6, "An oversized SVG may be displayed but must not remain cached.");
 memory.unload();
 
-// Failed exports are not cached; a deliberate retry can recover unchanged data.
 const retry = runtime();
 retry.useRenderer(async () => { throw new Error("Temporary read error"); });
 retry.start();
@@ -524,8 +505,6 @@ assert.equal(retry.renders.length, 2);
 assert.equal(retryView.button.firstElementChild.tagName, "IMG");
 retry.unload();
 
-// Light and dark results are distinct, but switching back can reuse a result.
-// File stats also detect a change when a host reload arrives before its event.
 const themes = runtime();
 themes.start();
 const themed = themes.mount();

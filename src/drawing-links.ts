@@ -34,7 +34,7 @@ function vaultPath(path: string): string {
   return parts.join("/");
 }
 
-/** Resolve new drawings without Obsidian's default .md suffix. */
+/** New drawing paths do not add .md. */
 export function getDrawingTargetPath(app: App, linktext: string, sourcePath: string): string | null {
   const target = drawingLinkPath(linktext);
   if (!target) return null;
@@ -43,8 +43,7 @@ export function getDrawingTargetPath(app: App, linktext: string, sourcePath: str
     return vaultPath(`${parent ? `${parent}/` : ""}${target}`);
   }
   if (target.includes("/")) return vaultPath(target);
-  // This plugin uses the configured new-note folder. Passing our unregistered
-  // file-creator extension makes the host log an error before that same fallback.
+
   const parent = app.fileManager.getNewFileParent(sourcePath).path;
   return vaultPath(`${parent && parent !== "/" ? `${parent}/` : ""}${target}`);
 }
@@ -62,10 +61,7 @@ export function registerDrawingLinks(plugin: Plugin, actions: DrawingActions): v
   let active = true;
   const creating = new Map<string, Promise<TFile>>();
 
-  // Obsidian 1.15 installs a missing-embed click handler only for extensions
-  // accepted by this private gate. A file view alone does not enable it.
-  // Advertise only our extension; openLinkText below creates valid scene JSON.
-  // Do not register a generic creator that could produce an empty JSON file.
+  // Enable clicks on missing drawing embeds.
   const fileManager = app.fileManager as FileManagerWithCreationGate;
   const previousCreationGate = fileManager?.canCreateFileWithExt;
   let creationGate: FileCreationGate | undefined;
@@ -87,8 +83,7 @@ export function registerDrawingLinks(plugin: Plugin, actions: DrawingActions): v
     try {
       const parent = app.fileManager.getNewFileParent(sourcePath).path;
       const file = await actions.createDrawing(parent === "/" ? "" : parent, false);
-      // The same editor object can be reused for another note while creation
-      // is pending. Never insert into that replacement document.
+      // Do not insert into another note.
       if (!active || info.file !== sourceFile || sourceFile.path !== sourcePath ||
           (info.editor && info.editor !== editor) || editor.getDoc() !== document ||
           app.vault.getAbstractFileByPath(sourcePath) !== sourceFile) {
@@ -102,8 +97,7 @@ export function registerDrawingLinks(plugin: Plugin, actions: DrawingActions): v
           samePosition(editor.getCursor("to"), to)) {
         editor.replaceRange(embed, from, to);
       } else {
-        // Preserve edits made while vault.create was pending. Appending is
-        // safe even when a different selection is now active.
+        // Keep note changes made during creation.
         const line = editor.lastLine();
         const end = { line, ch: editor.getLine(line).length };
         editor.replaceRange(`${editor.getValue().endsWith("\n") || !editor.getValue() ? "" : "\n"}${embed}\n`, end);
@@ -150,8 +144,7 @@ export function registerDrawingLinks(plugin: Plugin, actions: DrawingActions): v
     try {
       const path = getDrawingTargetPath(app, target, sourcePath)!;
       const newLeaf = options[0] ?? false;
-      // Native openLinkText chooses its destination before asynchronous file
-      // creation. Preserve that pane if the user switches tabs while we wait.
+      // Keep the chosen pane.
       const targetLeaf = newLeaf === false ? app.workspace.getLeaf(false) : undefined;
       const existing = app.vault.getAbstractFileByPath(path);
       if (existing && !(existing instanceof TFile)) throw new Error("A folder already uses this drawing path.");
@@ -162,8 +155,7 @@ export function registerDrawingLinks(plugin: Plugin, actions: DrawingActions): v
       let pending = creating.get(path);
       if (!pending) {
         pending = (async () => {
-          // A second caller or another plugin may have created it since the
-          // link lookup. createDrawingAtPath must use vault.create, not modify.
+
           const current = app.vault.getAbstractFileByPath(path);
           if (current instanceof TFile) return current;
           if (current) throw new Error("A folder already uses this drawing path.");
@@ -181,15 +173,14 @@ export function registerDrawingLinks(plugin: Plugin, actions: DrawingActions): v
       finally { if (creating.get(path) === pending) creating.delete(path); }
       if (active) await actions.openDrawing(file, newLeaf, options[1], targetLeaf);
     } catch (error) {
-      // Falling through to the host would create drawing.excalidraw.md.
+      // Do not let Obsidian add .md.
       reportError(error);
     }
   };
   app.workspace.openLinkText = openLink;
   plugin.register(() => {
     active = false;
-    // Keep wrappers installed later by other plugins. An inactive wrapper
-    // remains a transparent call to its predecessor until it is removed.
+    // Do not remove another plugin's wrapper.
     if (app.workspace.openLinkText === openLink) app.workspace.openLinkText = previousOpenLink;
     if (creationGate && fileManager.canCreateFileWithExt === creationGate) {
       fileManager.canCreateFileWithExt = previousCreationGate;

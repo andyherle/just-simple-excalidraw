@@ -15,7 +15,8 @@ export function createPreviewRenderer(app: App, library: Library): PreviewRender
     checkFileSize(contents.length);
     const parsed: unknown = JSON.parse(contents);
     checkScene(parsed);
-    const scene = parsed as ExcalidrawInitialDataState;
+    // Imported fields are checked above. Excalidraw restores missing defaults.
+    const scene = parsed as unknown as ExcalidrawInitialDataState;
     const elements = library.getNonDeletedElements(library.restoreElements(scene.elements, null));
     if (!elements.length) return null;
     signal?.throwIfAborted();
